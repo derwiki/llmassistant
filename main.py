@@ -5,6 +5,9 @@ import traceback
 import openai
 
 
+MODEL = os.getenv("MODEL")
+
+
 def query(prompt: str) -> str:
     response = openai.ChatCompletion.create(
         model='gpt-4', messages=[{"role": "user", "content": prompt}], temperature=0
@@ -27,7 +30,7 @@ The original prompt for this question was:
 {prompt}
 """
 
-EXCEPTION_IN_CODE_PROMPT = f"""The last code you generated:
+EXCEPTION_IN_CODE_PROMPT = """The last code you generated:
 
 {code}
 
