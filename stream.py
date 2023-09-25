@@ -1,21 +1,29 @@
 import os
 import re
 import traceback
+import subprocess
 
 import openai
-
 
 MODEL = os.getenv("MODEL")
 
 
-def query(prompt: str) -> str:
+def streaming_query(prompt: str, temperature=0.01) -> str:
+    buffer = ''
     response = openai.ChatCompletion.create(
-        model='gpt-4', messages=[{"role": "user", "content": prompt}], temperature=0
+        model='gpt-4', messages=[{"role": "user", "content": prompt}], temperature=temperature, stream=True
     )
-    return response.choices[0].message.content.strip()
+    for message in response:
+        chunk = message.choices[0].get("delta", {}).get('content', "")
+        print(chunk, end="")
+        buffer += chunk
+    return buffer
 
 
-PROMPT_TEMPLATE = """You are my coding assistant. Write clear, concise and well-typed Python code for me.
+PROMPT_TEMPLATE = """You are my coding assistant. Write clear & concise Python code for me.
+
+Function definitions should contain typing information.
+Create a local variable test_input and assign it a value from the Python code you wrote.
 
 {prompt}"""
 
@@ -37,7 +45,7 @@ EXCEPTION_IN_CODE_PROMPT = """The last code you generated:
 resulted in this exception:
 {exception_msg}.
 
-Please try again."""
+Try your best to explain what went wrong, how you can address it, and then please generate the code again."""
 
 
 def extract_python(s: str) -> str:
@@ -49,19 +57,18 @@ if __name__ == "__main__":
     prompt = os.getenv("PROMPT")
 
     retries = 4
+    code = ""
     while retries:
         try:
             print(prompt)
-            prompt_response = query(PROMPT_TEMPLATE.format(prompt=prompt))
+            prompt_response = streaming_query(PROMPT_TEMPLATE.format(prompt=prompt))
             code = extract_python(prompt_response)
             print(code)
             context = {}
             print("Compiling...")
             exec(code, context)
             new_fun = context[list(context.keys())[-1]]
-            print("Running...")
-            new_fun_result = new_fun(context['test_input'])  # this doesn't work if the fun takes an arg, like "scan this source code"
-            print(f"new_fun_result: {new_fun_result}")
+            # how to get the arity right?
             print(f"Program compiles and runs 🎉")
             break
         except Exception as e:
@@ -70,25 +77,32 @@ if __name__ == "__main__":
             prompt += EXCEPTION_IN_CODE_PROMPT.format(code=code, exception_msg=exception_msg)
             retries -= 1
 
-    retries = 4
-
+    retries = 10
+    # TODO make sure it doesn't get stuck in a loop
+    temperature = 0.01
     while retries:
         try:
             print(prompt)
-            prompt_response = query(UNIT_TEST_TEMPLATE.format(prompt=prompt, code=code))
+            prompt_response = streaming_query(UNIT_TEST_TEMPLATE.format(prompt=prompt, code=code))
             unit_test_code = extract_python(prompt_response)
             print(unit_test_code)
             print("Running...")
             exec(unit_test_code, context)
-            print(f"Program compiles 🎉")
-            unit_test_fun = context[list(context.keys())[-1]]
-            unit_test_fun_result = unit_test_fun()
+            print("Program compiles 🎉")
+            print(f"test_input: {context.get('test_input')}")
+            result = subprocess.run(["python", "-m", "pytest", "generated.py"], capture_output=True, text=True)
+            print(f"stdout: {result.stdout}")
+            print(f"stderr: {result.stderr}")
+            if result.returncode != 0:
+                raise RuntimeError(f"Running pytest resulted in these test failures:\n{result.stdout}\n{result.stderr}")
+            # Print the stdout and stderr
             print(f"Program runs 🎉")
             break
         except Exception as e:
             exception_msg = f"Exception {type(e)}: {e}\n{traceback.format_exc()}"
             print(exception_msg)
             prompt += EXCEPTION_IN_CODE_PROMPT.format(code=code, exception_msg=exception_msg)
+            temperature *= 2
             retries -= 1
 
     with open("generated.py", "w+") as f:
@@ -98,4 +112,3 @@ if __name__ == "__main__":
         print("### unit test ###")
         print(unit_test_code)
         f.write(f"{unit_test_code}\n")
-
