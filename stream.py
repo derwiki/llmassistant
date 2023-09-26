@@ -70,6 +70,8 @@ if __name__ == "__main__":
             new_fun = context[list(context.keys())[-1]]
             # how to get the arity right?
             print(f"Program compiles and runs 🎉")
+            with open("generated.py", "w+") as f:
+                f.write(code)
             break
         except Exception as e:
             exception_msg = f"Exception {type(e)}: {e}\n{traceback.format_exc()}"
@@ -85,6 +87,12 @@ if __name__ == "__main__":
             print(prompt)
             prompt_response = streaming_query(UNIT_TEST_TEMPLATE.format(prompt=prompt, code=code))
             unit_test_code = extract_python(prompt_response)
+
+            with open("generated.py", "w+") as f:
+                f.write(code)
+                f.write("\n\n")
+                f.write(unit_test_code)
+
             print(unit_test_code)
             print("Running...")
             exec(unit_test_code, context)
@@ -96,7 +104,7 @@ if __name__ == "__main__":
             if result.returncode != 0:
                 raise RuntimeError(f"Running pytest resulted in these test failures:\n{result.stdout}\n{result.stderr}")
             # Print the stdout and stderr
-            print(f"Program runs 🎉")
+            print(f"Program passes unit tests 🎉")
             break
         except Exception as e:
             exception_msg = f"Exception {type(e)}: {e}\n{traceback.format_exc()}"
